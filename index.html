@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>La Liga – Live Match Center</title>
+  <style>
+    :root {
+      --bg:#0b1220; --card:#111a2e; --accent:#facc15; --muted:#94a3b8; --text:#e5e7eb;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui;background:var(--bg);color:var(--text)}
+    header{position:sticky;top:0;z-index:10;background:#111827;padding:14px 20px;display:flex;justify-content:space-between;align-items:center}
+    nav button{background:none;border:none;color:var(--text);margin-left:12px;cursor:pointer;opacity:.7}
+    nav button.active{opacity:1;color:var(--accent)}
+    main{max-width:1200px;margin:auto;padding:20px}
+    .tab{display:none}
+    .tab.active{display:block}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+    .card{background:var(--card);border-radius:14px;padding:14px}
+    .team{display:flex;align-items:center;gap:8px}
+    .team img{width:26px;height:26px}
+    .score{font-size:22px;font-weight:bold}
+    .muted{color:var(--muted);font-size:13px}
+    .live{color:#22c55e;font-weight:600;font-size:12px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border-bottom:1px solid #1f2937}
+    tr.rm{background:#1f2937}
+  </style>
+</head>
+<body>
+<header>
+  <h2>⚽ La Liga Center</h2>
+  <nav>
+    <button class="active" onclick="showTab('matches',this)">Matches</button>
+    <button onclick="showTab('upcoming',this)">Upcoming</button>
+    <button onclick="showTab('realmadrid',this)">Real Madrid</button>
+    <button onclick="showTab('standings',this)">Standings</button>
+    <button onclick="showTab('news',this)">News</button>
+  </nav>
+</header>
+
+<main>
+  <section id="matches" class="tab active">
+    <h2>All Matches</h2>
+    <div id="scores" class="grid"></div>
+  </section>
+
+  <section id="upcoming" class="tab">
+    <h2>Upcoming Matches (All Teams)</h2>
+    <div id="upcomingMatches" class="grid"></div>
+  </section>
+
+  <section id="realmadrid" class="tab">
+    <h2>⭐ Real Madrid – All Competitions</h2>
+    <div id="rmMatches" class="grid"></div>
+  </section>
+
+  <section id="standings" class="tab">
+    <h2>Live Standings</h2>
+    <table id="table"></table>
+  </section>
+
+  <section id="news" class="tab">
+    <h2>La Liga News (IST)</h2>
+    <div id="newsList" class="grid"></div>
+  </section>
+</main>
+
+<script>
+const LEAGUE='esp.1';
+
+function showTab(id,btn){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active');
+  document.querySelectorAll('nav button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function matchCard(e,h,a,extra=''){return`
+<div class="card">
+  <div class="muted">${new Date(e.date).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'})} ${extra}</div>
+  <div class="team"><img src="${h.team.logo}">${h.team.displayName}</div>
+  <div class="score">${h.score??'-'} - ${a.score??'-'}</div>
+  <div class="team"><img src="${a.team.logo}">${a.team.displayName}</div>
+  <div class="muted">${e.league?.name || e.competitions?.[0]?.competition?.displayName || ''}</div>
+</div>`}
+
+async function loadMatches(){
+  const scores=document.getElementById('scores');
+  const rm=document.getElementById('rmMatches');
+  const upcoming=document.getElementById('upcomingMatches');
+  scores.innerHTML=rm.innerHTML=upcoming.innerHTML='';
+
+  const today=new Date();
+  for(let i=0;i<=14;i++){
+    const d=new Date(today);d.setDate(today.getDate()+i);
+    const date=d.toISOString().slice(0,10).replace(/-/g,'');
+    const res=await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/scoreboard?dates=${date}`);
+    const data=await res.json();
+    data.events?.forEach(e=>{
+      const c=e.competitions?.[0]; if(!c?.competitors) return;
+      const h=c.competitors.find(t=>t.homeAway==='home');
+      const a=c.competitors.find(t=>t.homeAway==='away');
+      if(!h||!a) return;
+      const live=e.status?.type?.state==='in'?' <span class="live">LIVE</span>':'';
+      const card=matchCard(e,h,a,live);
+      if(i===0) scores.innerHTML+=card;
+      else upcoming.innerHTML+=card;
+      if(h.team.displayName==='Real Madrid'||a.team.displayName==='Real Madrid') rm.innerHTML+=card;
+    });
+  }
+}
+
+async function loadStandings(){
+  const table=document.getElementById('table');
+  table.innerHTML='<tr><th>#</th><th>Team</th><th>P</th><th>Pts</th></tr>';
+  const res=await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/standings`);
+  const data=await res.json();
+  const rows=data?.children?.find(c=>c.standings?.entries)?.standings?.entries||data?.standings?.entries||[];
+  rows.forEach((r,i)=>{
+    const stats=Object.fromEntries(r.stats.map(s=>[s.name,s.value]));
+    const tr=document.createElement('tr');
+    if(r.team.displayName==='Real Madrid') tr.classList.add('rm');
+    tr.innerHTML=`<td>${i+1}</td><td>${r.team.displayName}</td><td>${stats.gamesPlayed}</td><td>${stats.points}</td>`;
+    table.appendChild(tr);
+  });
+}
+
+async function loadNews(){
+  const el=document.getElementById('newsList');el.innerHTML='';
+  const res=await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/${LEAGUE}/news`);
+  const data=await res.json();
+  data.articles?.forEach(n=>{
+    const t=new Date(n.published).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'});
+    el.innerHTML+=`<div class="card"><strong>${n.headline}</strong><div class="muted">${t} IST</div></div>`;
+  });
+}
+
+loadMatches(); loadStandings(); loadNews();
+setInterval(()=>{loadMatches();loadStandings()},60000);
+</script>
+</body>
+</html>
